@@ -5,17 +5,18 @@ namespace CocoR
 {
     public class Parser
     {
-        const int _EOF = 0;
-        const int _ident = 1;
-        const int _number = 2;
-        const int _string = 3;
-        const int _badString = 4;
-        const int _char = 5;
-        const int maxT = 45;
-        const int _ddtSym = 46;
+        public const int _EOF = 0;
+        public const int _ident = 1;
+        public const int _number = 2;
+        public const int _string = 3;
+        public const int _badString = 4;
+        public const int _char = 5;
+        public const int maxT = 41;
+        public const int _ddtSym = 42;
+        public const int _optionSym = 43;
 
-        const bool T = true;
-        const bool x = false;
+        const bool _T = true;
+        const bool _x = false;
         const int minErrDist = 2;
 
         public Scanner scanner;
@@ -64,9 +65,13 @@ namespace CocoR
                 t = la;
                 la = scanner.Scan();
                 if (la.kind <= maxT) { ++errDist; break; }
-                if (la.kind == 46)
+                if (la.kind == 42)
                 {
                     tab.SetDDT(la.val);
+                }
+                if (la.kind == 43)
+                {
+                    tab.SetOption(la.val);
                 }
 
                 la = t;
@@ -86,8 +91,7 @@ namespace CocoR
         void ExpectWeak(int n, int follow)
         {
             if (la.kind == n) Get();
-            else
-            {
+            else {
                 SynErr(n);
                 while (!StartOf(follow)) Get();
             }
@@ -98,8 +102,7 @@ namespace CocoR
             int kind = la.kind;
             if (kind == n) { Get(); return true; }
             else if (StartOf(repFol)) { return false; }
-            else
-            {
+            else {
                 SynErr(n);
                 while (!(set[syFol, kind] || set[repFol, kind] || set[0, kind]))
                 {
@@ -112,46 +115,35 @@ namespace CocoR
 
         void Coco()
         {
-            Symbol sym; Graph g, g1, g2; string gramName; CharSet s;
-            if (la.kind == 43)
+            Symbol sym; Graph g, g1, g2; string gramName; CharSet s; int beg, line;
+            if (StartOf(1))
             {
-                UsingDecl(out pgen.usingPos);
+                Get();
+                beg = t.pos; line = t.line;
+                while (StartOf(1))
+                {
+                    Get();
+                }
+                pgen.usingPos = new Position(beg, la.pos, 0, line);
             }
             Expect(6);
             genScanner = true;
             tab.ignored = new CharSet();
             Expect(1);
             gramName = t.val;
-            int beg = la.pos;
+            beg = la.pos; line = la.line;
 
-            while (StartOf(1))
+            while (StartOf(2))
             {
                 Get();
             }
-            tab.semDeclPos = new Position(beg, la.pos - beg, 0);
-            beg = la.pos + la.val.Length;
+            tab.semDeclPos = new Position(beg, la.pos, 0, line);
             if (la.kind == 7)
-            {
-                Get();
-                while (StartOf(2))
-                {
-                    Get();
-                }
-                tab.semDeclPos1 = new Position(beg, la.pos - beg, 0);
-                beg = la.pos + la.val.Length;
-                Expect(8);
-                while (StartOf(3))
-                {
-                    Get();
-                }
-                tab.semDeclPos2 = new Position(beg, la.pos - beg, 0);
-            }
-            if (la.kind == 9)
             {
                 Get();
                 dfa.ignoreCase = true;
             }
-            if (la.kind == 10)
+            if (la.kind == 8)
             {
                 Get();
                 while (la.kind == 1)
@@ -159,7 +151,7 @@ namespace CocoR
                     SetDecl();
                 }
             }
-            if (la.kind == 11)
+            if (la.kind == 9)
             {
                 Get();
                 while (la.kind == 1 || la.kind == 3 || la.kind == 5)
@@ -167,7 +159,7 @@ namespace CocoR
                     TokenDecl(Node.t);
                 }
             }
-            if (la.kind == 12)
+            if (la.kind == 10)
             {
                 Get();
                 while (la.kind == 1 || la.kind == 3 || la.kind == 5)
@@ -175,29 +167,29 @@ namespace CocoR
                     TokenDecl(Node.pr);
                 }
             }
-            while (la.kind == 13)
+            while (la.kind == 11)
             {
                 Get();
                 bool nested = false;
-                Expect(14);
+                Expect(12);
                 TokenExpr(out g1);
-                Expect(15);
+                Expect(13);
                 TokenExpr(out g2);
-                if (la.kind == 16)
+                if (la.kind == 14)
                 {
                     Get();
                     nested = true;
                 }
                 dfa.NewComment(g1.l, g2.l, nested);
             }
-            while (la.kind == 17)
+            while (la.kind == 15)
             {
                 Get();
                 Set(out s);
                 tab.ignored.Or(s);
             }
-            while (!(la.kind == 0 || la.kind == 18)) { SynErr(46); Get(); }
-            Expect(18);
+            while (!(la.kind == 0 || la.kind == 16)) { SynErr(42); Get(); }
+            Expect(16);
             if (genScanner) dfa.MakeDeterministic();
             tab.DeleteNodes();
 
@@ -207,8 +199,7 @@ namespace CocoR
                 sym = tab.FindSym(t.val);
                 bool undef = sym == null;
                 if (undef) sym = tab.NewSym(Node.nt, t.val, t.line);
-                else
-                {
+                else {
                     if (sym.typ == Node.nt)
                     {
                         if (sym.graph != null) SemErr("name declared twice");
@@ -219,7 +210,7 @@ namespace CocoR
                 bool noAttrs = sym.attrPos == null;
                 sym.attrPos = null;
 
-                if (la.kind == 26 || la.kind == 28)
+                if (la.kind == 24 || la.kind == 26)
                 {
                     AttrDecl(sym);
                 }
@@ -227,26 +218,25 @@ namespace CocoR
                     if (noAttrs != (sym.attrPos == null))
                         SemErr("attribute mismatch between declaration and use of this symbol");
 
-                if (la.kind == 41)
+                if (la.kind == 39)
                 {
                     SemText(out sym.semPos);
                 }
-                ExpectWeak(19, 4);
+                ExpectWeak(17, 3);
                 Expression(out g);
                 sym.graph = g.l;
                 tab.Finish(g);
 
-                ExpectWeak(20, 5);
+                ExpectWeak(18, 4);
             }
-            Expect(21);
+            Expect(19);
             Expect(1);
             if (gramName != t.val)
                 SemErr("name does not match grammar name");
             tab.gramSy = tab.FindSym(gramName);
             if (tab.gramSy == null)
                 SemErr("missing production for grammar name");
-            else
-            {
+            else {
                 sym = tab.gramSy;
                 if (sym.attrPos != null)
                     SemErr("grammar symbol must not have attributes");
@@ -276,30 +266,7 @@ namespace CocoR
             }
             if (tab.ddt[6]) tab.PrintSymbolTable();
 
-            Expect(20);
-        }
-
-        void UsingDecl(out Position pos)
-        {
-            Expect(43);
-            int beg = t.pos;
-            while (StartOf(6))
-            {
-                Get();
-            }
-            Expect(44);
-            int end = t.pos;
-            while (la.kind == 43)
-            {
-                Get();
-                while (StartOf(6))
-                {
-                    Get();
-                }
-                Expect(44);
-                end = t.pos;
-            }
-            pos = new Position(beg, end - beg + 1, 0);
+            Expect(18);
         }
 
         void SetDecl()
@@ -310,12 +277,12 @@ namespace CocoR
             CharClass c = tab.FindCharClass(name);
             if (c != null) SemErr("name declared twice");
 
-            Expect(19);
+            Expect(17);
             Set(out s);
             if (s.Elements() == 0) SemErr("character set must not be empty");
             tab.NewCharClass(name, s);
 
-            Expect(20);
+            Expect(18);
         }
 
         void TokenDecl(int typ)
@@ -324,38 +291,36 @@ namespace CocoR
             Sym(out name, out kind);
             sym = tab.FindSym(name);
             if (sym != null) SemErr("name declared twice");
-            else
-            {
+            else {
                 sym = tab.NewSym(typ, name, t.line);
                 sym.tokenKind = Symbol.fixedToken;
             }
             tokenString = null;
 
-            while (!(StartOf(7))) { SynErr(47); Get(); }
-            if (la.kind == 19)
+            while (!(StartOf(5))) { SynErr(43); Get(); }
+            if (la.kind == 17)
             {
                 Get();
                 TokenExpr(out g);
-                Expect(20);
+                Expect(18);
                 if (kind == str) SemErr("a literal must not be declared with a structure");
                 tab.Finish(g);
                 if (tokenString == null || tokenString.Equals(noString))
                     dfa.ConvertToStates(g.l, sym);
-                else
-                { // TokenExpr is a single string
+                else { // TokenExpr is a single string
                     if (tab.literals[tokenString] != null)
                         SemErr("token string declared twice");
                     tab.literals[tokenString] = sym;
                     dfa.MatchLiteral(tokenString, sym);
                 }
             }
-            else if (StartOf(8))
+            else if (StartOf(6))
             {
                 if (kind == id) genScanner = false;
                 else dfa.MatchLiteral(sym.name, sym);
             }
-            else SynErr(48);
-            if (la.kind == 41)
+            else SynErr(44);
+            if (la.kind == 39)
             {
                 SemText(out sym.semPos);
                 if (typ != Node.pr) SemErr("semantic action not allowed here");
@@ -367,7 +332,7 @@ namespace CocoR
             Graph g2;
             TokenTerm(out g);
             bool first = true;
-            while (WeakSeparator(30, 9, 10))
+            while (WeakSeparator(28, 7, 8))
             {
                 TokenTerm(out g2);
                 if (first) { tab.MakeFirstAlt(g); first = false; }
@@ -379,16 +344,15 @@ namespace CocoR
         {
             CharSet s2;
             SimSet(out s);
-            while (la.kind == 22 || la.kind == 23)
+            while (la.kind == 20 || la.kind == 21)
             {
-                if (la.kind == 22)
+                if (la.kind == 20)
                 {
                     Get();
                     SimSet(out s2);
                     s.Or(s2);
                 }
-                else
-                {
+                else {
                     Get();
                     SimSet(out s2);
                     s.Subtract(s2);
@@ -398,56 +362,54 @@ namespace CocoR
 
         void AttrDecl(Symbol sym)
         {
-            if (la.kind == 26)
+            if (la.kind == 24)
             {
                 Get();
-                int beg = la.pos; int col = la.col;
+                int beg = la.pos; int col = la.col; int line = la.line;
+                while (StartOf(9))
+                {
+                    if (StartOf(10))
+                    {
+                        Get();
+                    }
+                    else {
+                        Get();
+                        SemErr("bad string in attributes");
+                    }
+                }
+                Expect(25);
+                if (t.pos > beg)
+                    sym.attrPos = new Position(beg, t.pos, col, line);
+            }
+            else if (la.kind == 26)
+            {
+                Get();
+                int beg = la.pos; int col = la.col; int line = la.line;
                 while (StartOf(11))
                 {
                     if (StartOf(12))
                     {
                         Get();
                     }
-                    else
-                    {
+                    else {
                         Get();
                         SemErr("bad string in attributes");
                     }
                 }
                 Expect(27);
                 if (t.pos > beg)
-                    sym.attrPos = new Position(beg, t.pos - beg, col);
+                    sym.attrPos = new Position(beg, t.pos, col, line);
             }
-            else if (la.kind == 28)
-            {
-                Get();
-                int beg = la.pos; int col = la.col;
-                while (StartOf(13))
-                {
-                    if (StartOf(14))
-                    {
-                        Get();
-                    }
-                    else
-                    {
-                        Get();
-                        SemErr("bad string in attributes");
-                    }
-                }
-                Expect(29);
-                if (t.pos > beg)
-                    sym.attrPos = new Position(beg, t.pos - beg, col);
-            }
-            else SynErr(49);
+            else SynErr(45);
         }
 
         void SemText(out Position pos)
         {
-            Expect(41);
-            int beg = la.pos; int col = la.col;
-            while (StartOf(15))
+            Expect(39);
+            int beg = la.pos; int col = la.col; int line = la.line;
+            while (StartOf(13))
             {
-                if (StartOf(16))
+                if (StartOf(14))
                 {
                     Get();
                 }
@@ -456,14 +418,13 @@ namespace CocoR
                     Get();
                     SemErr("bad string in semantic action");
                 }
-                else
-                {
+                else {
                     Get();
                     SemErr("missing end of previous semantic action");
                 }
             }
-            Expect(42);
-            pos = new Position(beg, t.pos - beg, col);
+            Expect(40);
+            pos = new Position(beg, t.pos, col, line);
         }
 
         void Expression(out Graph g)
@@ -471,7 +432,7 @@ namespace CocoR
             Graph g2;
             Term(out g);
             bool first = true;
-            while (WeakSeparator(30, 17, 18))
+            while (WeakSeparator(28, 15, 16))
             {
                 Term(out g2);
                 if (first) { tab.MakeFirstAlt(g); first = false; }
@@ -502,19 +463,19 @@ namespace CocoR
             {
                 Char(out n1);
                 s.Set(n1);
-                if (la.kind == 24)
+                if (la.kind == 22)
                 {
                     Get();
                     Char(out n2);
                     for (int i = n1; i <= n2; i++) s.Set(i);
                 }
             }
-            else if (la.kind == 25)
+            else if (la.kind == 23)
             {
                 Get();
                 s = new CharSet(); s.Fill();
             }
-            else SynErr(50);
+            else SynErr(46);
         }
 
         void Char(out int n)
@@ -542,8 +503,7 @@ namespace CocoR
                     Get();
                     name = t.val;
                 }
-                else
-                {
+                else {
                     Get();
                     name = "\"" + t.val.Substring(1, t.val.Length - 2) + "\"";
                 }
@@ -552,15 +512,15 @@ namespace CocoR
                 if (name.IndexOf(' ') >= 0)
                     SemErr("literal tokens must not contain blanks");
             }
-            else SynErr(51);
+            else SynErr(47);
         }
 
         void Term(out Graph g)
         {
             Graph g2; Node rslv = null; g = null;
-            if (StartOf(19))
+            if (StartOf(17))
             {
-                if (la.kind == 39)
+                if (la.kind == 37)
                 {
                     rslv = tab.NewNode(Node.rslv, null, la.line);
                     Resolver(out rslv.pos);
@@ -570,28 +530,28 @@ namespace CocoR
                 if (rslv != null) tab.MakeSequence(g, g2);
                 else g = g2;
 
-                while (StartOf(20))
+                while (StartOf(18))
                 {
                     Factor(out g2);
                     tab.MakeSequence(g, g2);
                 }
             }
-            else if (StartOf(21))
+            else if (StartOf(19))
             {
                 g = new Graph(tab.NewNode(Node.eps, null, 0));
             }
-            else SynErr(52);
+            else SynErr(48);
             if (g == null) // invalid start of Term
                 g = new Graph(tab.NewNode(Node.eps, null, 0));
         }
 
         void Resolver(out Position pos)
         {
-            Expect(39);
-            Expect(32);
-            int beg = la.pos; int col = la.col;
+            Expect(37);
+            Expect(30);
+            int beg = la.pos; int col = la.col; int line = la.line;
             Condition();
-            pos = new Position(beg, t.pos - beg, col);
+            pos = new Position(beg, t.pos, col, line);
         }
 
         void Factor(out Graph g)
@@ -604,9 +564,9 @@ namespace CocoR
                 case 1:
                 case 3:
                 case 5:
-                case 31:
+                case 29:
                     {
-                        if (la.kind == 31)
+                        if (la.kind == 29)
                         {
                             Get();
                             weak = true;
@@ -625,8 +585,7 @@ namespace CocoR
                                 sym = tab.NewSym(Node.t, name, t.line);
                                 dfa.MatchLiteral(sym.name, sym);
                             }
-                            else
-                            {  // undefined string in production
+                            else {  // undefined string in production
                                 SemErr("undefined string in production");
                                 sym = tab.eofSy;  // dummy
                             }
@@ -640,7 +599,7 @@ namespace CocoR
                         Node p = tab.NewNode(typ, sym, t.line);
                         g = new Graph(p);
 
-                        if (la.kind == 26 || la.kind == 28)
+                        if (la.kind == 24 || la.kind == 26)
                         {
                             Attribs(p);
                             if (kind != id) SemErr("a literal must not have attributes");
@@ -652,11 +611,19 @@ namespace CocoR
 
                         break;
                     }
+                case 30:
+                    {
+                        Get();
+                        Expression(out g);
+                        Expect(31);
+                        break;
+                    }
                 case 32:
                     {
                         Get();
                         Expression(out g);
                         Expect(33);
+                        tab.MakeOption(g);
                         break;
                     }
                 case 34:
@@ -664,18 +631,10 @@ namespace CocoR
                         Get();
                         Expression(out g);
                         Expect(35);
-                        tab.MakeOption(g);
-                        break;
-                    }
-                case 36:
-                    {
-                        Get();
-                        Expression(out g);
-                        Expect(37);
                         tab.MakeIteration(g);
                         break;
                     }
-                case 41:
+                case 39:
                     {
                         SemText(out pos);
                         Node p = tab.NewNode(Node.sem, null, 0);
@@ -684,7 +643,7 @@ namespace CocoR
 
                         break;
                     }
-                case 25:
+                case 23:
                     {
                         Get();
                         Node p = tab.NewNode(Node.any, null, 0);  // p.set is set in tab.SetupAnys
@@ -692,7 +651,7 @@ namespace CocoR
 
                         break;
                     }
-                case 38:
+                case 36:
                     {
                         Get();
                         Node p = tab.NewNode(Node.sync, null, 0);
@@ -700,7 +659,7 @@ namespace CocoR
 
                         break;
                     }
-                default: SynErr(53); break;
+                default: SynErr(49); break;
             }
             if (g == null) // invalid start of Factor
                 g = new Graph(tab.NewNode(Node.eps, null, 0));
@@ -708,81 +667,78 @@ namespace CocoR
 
         void Attribs(Node p)
         {
-            if (la.kind == 26)
+            if (la.kind == 24)
             {
                 Get();
-                int beg = la.pos; int col = la.col;
+                int beg = la.pos; int col = la.col; int line = la.line;
+                while (StartOf(9))
+                {
+                    if (StartOf(10))
+                    {
+                        Get();
+                    }
+                    else {
+                        Get();
+                        SemErr("bad string in attributes");
+                    }
+                }
+                Expect(25);
+                if (t.pos > beg) p.pos = new Position(beg, t.pos, col, line);
+            }
+            else if (la.kind == 26)
+            {
+                Get();
+                int beg = la.pos; int col = la.col; int line = la.line;
                 while (StartOf(11))
                 {
                     if (StartOf(12))
                     {
                         Get();
                     }
-                    else
-                    {
+                    else {
                         Get();
                         SemErr("bad string in attributes");
                     }
                 }
                 Expect(27);
-                if (t.pos > beg) p.pos = new Position(beg, t.pos - beg, col);
+                if (t.pos > beg) p.pos = new Position(beg, t.pos, col, line);
             }
-            else if (la.kind == 28)
-            {
-                Get();
-                int beg = la.pos; int col = la.col;
-                while (StartOf(13))
-                {
-                    if (StartOf(14))
-                    {
-                        Get();
-                    }
-                    else
-                    {
-                        Get();
-                        SemErr("bad string in attributes");
-                    }
-                }
-                Expect(29);
-                if (t.pos > beg) p.pos = new Position(beg, t.pos - beg, col);
-            }
-            else SynErr(54);
+            else SynErr(50);
         }
 
         void Condition()
         {
-            while (StartOf(22))
+            while (StartOf(20))
             {
-                if (la.kind == 32)
+                if (la.kind == 30)
                 {
                     Get();
                     Condition();
                 }
-                else
-                {
+                else {
                     Get();
                 }
             }
-            Expect(33);
+            Expect(31);
         }
 
         void TokenTerm(out Graph g)
         {
             Graph g2;
             TokenFactor(out g);
-            while (StartOf(9))
+            while (StartOf(7))
             {
                 TokenFactor(out g2);
                 tab.MakeSequence(g, g2);
             }
-            if (la.kind == 40)
+            if (la.kind == 38)
             {
                 Get();
-                Expect(32);
+                Expect(30);
                 TokenExpr(out g2);
                 tab.SetContextTrans(g2.l); dfa.hasCtxMoves = true;
                 tab.MakeSequence(g, g2);
-                Expect(33);
+                Expect(31);
             }
         }
 
@@ -805,34 +761,33 @@ namespace CocoR
                     g = new Graph(p);
                     tokenString = noString;
                 }
-                else
-                { // str
+                else { // str
                     g = tab.StrToGraph(name);
                     if (tokenString == null) tokenString = name;
                     else tokenString = noString;
                 }
+            }
+            else if (la.kind == 30)
+            {
+                Get();
+                TokenExpr(out g);
+                Expect(31);
             }
             else if (la.kind == 32)
             {
                 Get();
                 TokenExpr(out g);
                 Expect(33);
+                tab.MakeOption(g); tokenString = noString;
             }
             else if (la.kind == 34)
             {
                 Get();
                 TokenExpr(out g);
                 Expect(35);
-                tab.MakeOption(g);
+                tab.MakeIteration(g); tokenString = noString;
             }
-            else if (la.kind == 36)
-            {
-                Get();
-                TokenExpr(out g);
-                Expect(37);
-                tab.MakeIteration(g);
-            }
-            else SynErr(55);
+            else SynErr(51);
             if (g == null) // invalid start of TokenFactor
                 g = new Graph(tab.NewNode(Node.eps, null, 0));
         }
@@ -843,34 +798,31 @@ namespace CocoR
             la.val = "";
             Get();
             Coco();
-
             Expect(0);
         }
 
-        bool[,] set = {
-        {T,T,x,T, x,T,x,x, x,x,x,x, T,T,x,x, x,T,T,T, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,T,x,x, x,x,x},
-        {x,T,T,T, T,T,T,x, T,x,x,x, x,x,T,T, T,x,x,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,x},
-        {x,T,T,T, T,T,T,T, x,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,x},
-        {x,T,T,T, T,T,T,T, T,x,x,x, x,x,T,T, T,x,x,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,x},
-        {T,T,x,T, x,T,x,x, x,x,x,x, T,T,x,x, x,T,T,T, T,x,x,x, x,T,x,x, x,x,T,T, T,x,T,x, T,x,T,T, x,T,x,x, x,x,x},
-        {T,T,x,T, x,T,x,x, x,x,x,x, T,T,x,x, x,T,T,T, x,T,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,T,x,x, x,x,x},
-        {x,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, x,T,x},
-        {T,T,x,T, x,T,x,x, x,x,x,x, T,T,x,x, x,T,T,T, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,T,x,x, x,x,x},
-        {x,T,x,T, x,T,x,x, x,x,x,x, T,T,x,x, x,T,T,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,T,x,x, x,x,x},
-        {x,T,x,T, x,T,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, T,x,T,x, T,x,x,x, x,x,x,x, x,x,x},
-        {x,x,x,x, x,x,x,x, x,x,x,x, x,T,x,T, T,T,T,x, T,x,x,x, x,x,x,x, x,x,x,x, x,T,x,T, x,T,x,x, x,x,x,x, x,x,x},
-        {x,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,x, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,x},
-        {x,T,T,T, x,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,x, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,x},
-        {x,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,x,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,x},
-        {x,T,T,T, x,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,x,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,x},
-        {x,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,x,T, T,T,x},
-        {x,T,T,T, x,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,x,x,T, T,T,x},
-        {x,T,x,T, x,T,x,x, x,x,x,x, x,x,x,x, x,x,x,x, T,x,x,x, x,T,x,x, x,x,T,T, T,T,T,T, T,T,T,T, x,T,x,x, x,x,x},
-        {x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, T,x,x,x, x,x,x,x, x,x,x,x, x,T,x,T, x,T,x,x, x,x,x,x, x,x,x},
-        {x,T,x,T, x,T,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,T,x,x, x,x,x,T, T,x,T,x, T,x,T,T, x,T,x,x, x,x,x},
-        {x,T,x,T, x,T,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,T,x,x, x,x,x,T, T,x,T,x, T,x,T,x, x,T,x,x, x,x,x},
-        {x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, T,x,x,x, x,x,x,x, x,x,T,x, x,T,x,T, x,T,x,x, x,x,x,x, x,x,x},
-        {x,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,T,T,T, T,x,T,T, T,T,T,T, T,T,T,T, T,T,x}
+        static readonly bool[,] set = {
+        {_T,_T,_x,_T, _x,_T,_x,_x, _x,_x,_T,_T, _x,_x,_x,_T, _T,_T,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _x,_x,_x},
+        {_x,_T,_T,_T, _T,_T,_x,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_x},
+        {_x,_T,_T,_T, _T,_T,_T,_x, _x,_x,_x,_x, _T,_T,_T,_x, _x,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_x},
+        {_T,_T,_x,_T, _x,_T,_x,_x, _x,_x,_T,_T, _x,_x,_x,_T, _T,_T,_T,_x, _x,_x,_x,_T, _x,_x,_x,_x, _T,_T,_T,_x, _T,_x,_T,_x, _T,_T,_x,_T, _x,_x,_x},
+        {_T,_T,_x,_T, _x,_T,_x,_x, _x,_x,_T,_T, _x,_x,_x,_T, _T,_T,_x,_T, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _x,_x,_x},
+        {_T,_T,_x,_T, _x,_T,_x,_x, _x,_x,_T,_T, _x,_x,_x,_T, _T,_T,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _x,_x,_x},
+        {_x,_T,_x,_T, _x,_T,_x,_x, _x,_x,_T,_T, _x,_x,_x,_T, _T,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _x,_x,_x},
+        {_x,_T,_x,_T, _x,_T,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_T,_x, _T,_x,_T,_x, _x,_x,_x,_x, _x,_x,_x},
+        {_x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _x,_T,_T,_T, _T,_x,_T,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _x,_T,_x,_T, _x,_x,_x,_x, _x,_x,_x},
+        {_x,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_x,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_x},
+        {_x,_T,_T,_T, _x,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_x,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_x},
+        {_x,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_x, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_x},
+        {_x,_T,_T,_T, _x,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_x, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_x},
+        {_x,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _x,_T,_x},
+        {_x,_T,_T,_T, _x,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_x, _x,_T,_x},
+        {_x,_T,_x,_T, _x,_T,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_T,_x, _x,_x,_x,_T, _x,_x,_x,_x, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_x,_T, _x,_x,_x},
+        {_x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_T,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _x,_T,_x,_T, _x,_x,_x,_x, _x,_x,_x},
+        {_x,_T,_x,_T, _x,_T,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _x,_x,_x,_x, _x,_T,_T,_x, _T,_x,_T,_x, _T,_T,_x,_T, _x,_x,_x},
+        {_x,_T,_x,_T, _x,_T,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_T, _x,_x,_x,_x, _x,_T,_T,_x, _T,_x,_T,_x, _T,_x,_x,_T, _x,_x,_x},
+        {_x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_x,_x, _x,_x,_T,_x, _x,_x,_x,_x, _x,_x,_x,_x, _T,_x,_x,_T, _x,_T,_x,_T, _x,_x,_x,_x, _x,_x,_x},
+        {_x,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_T,_x, _T,_T,_T,_T, _T,_T,_T,_T, _T,_T,_x}
     };
     } // end Parser
 
@@ -880,7 +832,7 @@ namespace CocoR
         public System.IO.TextWriter errorStream = Console.Out;   // error messages go to this stream
         public string errMsgFormat = "-- line {0} col {1}: {2}"; // 0=line, 1=column, 2=text
 
-        public void SynErr(int line, int col, int n)
+        public virtual void SynErr(int line, int col, int n)
         {
             string s;
             switch (n)
@@ -892,55 +844,51 @@ namespace CocoR
                 case 4: s = "badString expected"; break;
                 case 5: s = "char expected"; break;
                 case 6: s = "\"COMPILER\" expected"; break;
-                case 7: s = "\"VARIABLES\" expected"; break;
-                case 8: s = "\"INITVARIABLES\" expected"; break;
-                case 9: s = "\"IGNORECASE\" expected"; break;
-                case 10: s = "\"CHARACTERS\" expected"; break;
-                case 11: s = "\"TOKENS\" expected"; break;
-                case 12: s = "\"PRAGMAS\" expected"; break;
-                case 13: s = "\"COMMENTS\" expected"; break;
-                case 14: s = "\"FROM\" expected"; break;
-                case 15: s = "\"TO\" expected"; break;
-                case 16: s = "\"NESTED\" expected"; break;
-                case 17: s = "\"IGNORE\" expected"; break;
-                case 18: s = "\"PRODUCTIONS\" expected"; break;
-                case 19: s = "\"=\" expected"; break;
-                case 20: s = "\".\" expected"; break;
-                case 21: s = "\"END\" expected"; break;
-                case 22: s = "\"+\" expected"; break;
-                case 23: s = "\"-\" expected"; break;
-                case 24: s = "\"..\" expected"; break;
-                case 25: s = "\"ANY\" expected"; break;
-                case 26: s = "\"<\" expected"; break;
-                case 27: s = "\">\" expected"; break;
-                case 28: s = "\"<.\" expected"; break;
-                case 29: s = "\".>\" expected"; break;
-                case 30: s = "\"|\" expected"; break;
-                case 31: s = "\"WEAK\" expected"; break;
-                case 32: s = "\"(\" expected"; break;
-                case 33: s = "\")\" expected"; break;
-                case 34: s = "\"[\" expected"; break;
-                case 35: s = "\"]\" expected"; break;
-                case 36: s = "\"{\" expected"; break;
-                case 37: s = "\"}\" expected"; break;
-                case 38: s = "\"SYNC\" expected"; break;
-                case 39: s = "\"IF\" expected"; break;
-                case 40: s = "\"CONTEXT\" expected"; break;
-                case 41: s = "\"(.\" expected"; break;
-                case 42: s = "\".)\" expected"; break;
-                case 43: s = "\"open\" expected"; break;
-                case 44: s = "\";\" expected"; break;
-                case 45: s = "??? expected"; break;
-                case 46: s = "this symbol not expected in Coco"; break;
-                case 47: s = "this symbol not expected in TokenDecl"; break;
-                case 48: s = "invalid TokenDecl"; break;
-                case 49: s = "invalid AttrDecl"; break;
-                case 50: s = "invalid SimSet"; break;
-                case 51: s = "invalid Sym"; break;
-                case 52: s = "invalid Term"; break;
-                case 53: s = "invalid Factor"; break;
-                case 54: s = "invalid Attribs"; break;
-                case 55: s = "invalid TokenFactor"; break;
+                case 7: s = "\"IGNORECASE\" expected"; break;
+                case 8: s = "\"CHARACTERS\" expected"; break;
+                case 9: s = "\"TOKENS\" expected"; break;
+                case 10: s = "\"PRAGMAS\" expected"; break;
+                case 11: s = "\"COMMENTS\" expected"; break;
+                case 12: s = "\"FROM\" expected"; break;
+                case 13: s = "\"TO\" expected"; break;
+                case 14: s = "\"NESTED\" expected"; break;
+                case 15: s = "\"IGNORE\" expected"; break;
+                case 16: s = "\"PRODUCTIONS\" expected"; break;
+                case 17: s = "\"=\" expected"; break;
+                case 18: s = "\".\" expected"; break;
+                case 19: s = "\"END\" expected"; break;
+                case 20: s = "\"+\" expected"; break;
+                case 21: s = "\"-\" expected"; break;
+                case 22: s = "\"..\" expected"; break;
+                case 23: s = "\"ANY\" expected"; break;
+                case 24: s = "\"<\" expected"; break;
+                case 25: s = "\">\" expected"; break;
+                case 26: s = "\"<.\" expected"; break;
+                case 27: s = "\".>\" expected"; break;
+                case 28: s = "\"|\" expected"; break;
+                case 29: s = "\"WEAK\" expected"; break;
+                case 30: s = "\"(\" expected"; break;
+                case 31: s = "\")\" expected"; break;
+                case 32: s = "\"[\" expected"; break;
+                case 33: s = "\"]\" expected"; break;
+                case 34: s = "\"{\" expected"; break;
+                case 35: s = "\"}\" expected"; break;
+                case 36: s = "\"SYNC\" expected"; break;
+                case 37: s = "\"IF\" expected"; break;
+                case 38: s = "\"CONTEXT\" expected"; break;
+                case 39: s = "\"(.\" expected"; break;
+                case 40: s = "\".)\" expected"; break;
+                case 41: s = "??? expected"; break;
+                case 42: s = "this symbol not expected in Coco"; break;
+                case 43: s = "this symbol not expected in TokenDecl"; break;
+                case 44: s = "invalid TokenDecl"; break;
+                case 45: s = "invalid AttrDecl"; break;
+                case 46: s = "invalid SimSet"; break;
+                case 47: s = "invalid Sym"; break;
+                case 48: s = "invalid Term"; break;
+                case 49: s = "invalid Factor"; break;
+                case 50: s = "invalid Attribs"; break;
+                case 51: s = "invalid TokenFactor"; break;
 
                 default: s = "error " + n; break;
             }
@@ -948,24 +896,24 @@ namespace CocoR
             count++;
         }
 
-        public void SemErr(int line, int col, string s)
+        public virtual void SemErr(int line, int col, string s)
         {
             errorStream.WriteLine(errMsgFormat, line, col, s);
             count++;
         }
 
-        public void SemErr(string s)
+        public virtual void SemErr(string s)
         {
             errorStream.WriteLine(s);
             count++;
         }
 
-        public void Warning(int line, int col, string s)
+        public virtual void Warning(int line, int col, string s)
         {
             errorStream.WriteLine(errMsgFormat, line, col, s);
         }
 
-        public void Warning(string s)
+        public virtual void Warning(string s)
         {
             errorStream.WriteLine(s);
         }

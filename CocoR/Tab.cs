@@ -7,13 +7,14 @@ namespace CocoR
 {
     public class Position
     {  // position of source code stretch (e.g. semantic action, resolver expressions)
-        public int beg;      // start relative to the beginning of the file
-        public int len;      // length of stretch
-        public int col;      // column number of start position
+        public readonly int beg;      // start relative to the beginning of the file
+        public readonly int end;      // end of stretch
+        public readonly int col;      // column number of start position
+        public readonly int line;     // line number of start position
 
-        public Position(int beg, int len, int col)
+        public Position(int beg, int end, int col, int line)
         {
-            this.beg = beg; this.len = len; this.col = col;
+            this.beg = beg; this.end = end; this.col = col; this.line = line;
         }
     }
 
@@ -21,7 +22,7 @@ namespace CocoR
     // Symbol
     //=====================================================================
 
-    public class Symbol : IComparable
+    public class Symbol
     {
         // token kinds
         public const int fixedToken = 0; // e.g. 'a' ('b' | 'c') (structure of literals)
@@ -49,11 +50,6 @@ namespace CocoR
         {
             this.typ = typ; this.name = name; this.line = line;
         }
-
-        public int CompareTo(object x)
-        {
-            return name.CompareTo(((Symbol)x).name);
-        }
     }
 
     //=====================================================================
@@ -79,7 +75,6 @@ namespace CocoR
         public const int opt = 13;  // option: [ ]
         public const int rslv = 14;  // resolver expr
 
-        public const int vr = 15;  // variables expr
         public const int normalTrans = 0;       // transition codes
         public const int contextTrans = 1;
 
@@ -99,6 +94,7 @@ namespace CocoR
         public Position pos;        // nt, t, wt: pos of actual attributes
 
                                     // sem:       pos of semantic action in source text
+                                    // rslv:       pos of resolver in source text
         public int line;        // source text line number of item in this node
 
         public State state; // DFA state corresponding to this node
@@ -179,7 +175,6 @@ namespace CocoR
 
     public class CharClass
     {
-        public const int charSetSize = 256;  // must be a multiple of 16
         public int n;           // class number
         public string name;     // class name
         public CharSet set; // set representing the class
@@ -196,12 +191,7 @@ namespace CocoR
 
     public class Tab
     {
-        //altered
-        public Position semDeclPos1;       // position of class variables
-
-        public Position semDeclPos2;       // position of initialization variables
-
-        public Position semDeclPos;       // position of global semantic expressions
+        public Position semDeclPos;       // position of global semantic declarations
         public CharSet ignored;           // characters ignored by the scanner
         public bool[] ddt = new bool[10]; // debug and test switches
         public Symbol gramSy;             // root nonterminal; filled by ATG
@@ -215,6 +205,12 @@ namespace CocoR
         public string nsName;             // namespace for generated files
         public string frameDir;           // directory containing the frame files
         public string outDir;             // directory for generated files
+        public bool checkEOF = true;      // should coco generate a check for EOF at
+
+                                          //   the end of Parser.Parse():
+        public bool emitLines;            // emit #line pragmas for semantic actions
+
+                                          //   in the generated parser
 
         BitArray visited;                 // mark list for graph traversals
         Symbol curSy;                     // current symbol in computation of sets
@@ -240,7 +236,6 @@ namespace CocoR
         public ArrayList terminals = new ArrayList();
         public ArrayList pragmas = new ArrayList();
         public ArrayList nonterminals = new ArrayList();
-        public ArrayList variables = new ArrayList();
 
         string[] tKind = { "fixedToken", "classToken", "litToken", "classLitToken" };
 
@@ -256,8 +251,6 @@ namespace CocoR
                 case Node.t: sym.n = terminals.Count; terminals.Add(sym); break;
                 case Node.pr: pragmas.Add(sym); break;
                 case Node.nt: sym.n = nonterminals.Count; nonterminals.Add(sym); break;
-                //Added Node to save the variables
-                case Node.vr: variables.Add(sym); break;
             }
             return sym;
         }
@@ -367,25 +360,33 @@ namespace CocoR
         public void MakeFirstAlt(Graph g)
         {
             g.l = NewNode(Node.alt, g.l); g.l.line = g.l.sub.line;
+            g.r.up = true;
             g.l.next = g.r;
             g.r = g.l;
         }
 
+        // The result will be in g1
         public void MakeAlternative(Graph g1, Graph g2)
         {
             g2.l = NewNode(Node.alt, g2.l); g2.l.line = g2.l.sub.line;
+            g2.l.up = true;
+            g2.r.up = true;
             Node p = g1.l; while (p.down != null) p = p.down;
             p.down = g2.l;
             p = g1.r; while (p.next != null) p = p.next;
-            p.next = g2.r;
+            // append alternative to g1 end list
+            p.next = g2.l;
+            // append g2 end list to g1 end list
+            g2.l.next = g2.r;
         }
 
+        // The result will be in g1
         public void MakeSequence(Graph g1, Graph g2)
         {
             Node p = g1.r.next; g1.r.next = g2.l; // link head node
             while (p != null)
             {  // link substructure
-                Node q = p.next; p.next = g2.l; p.up = true;
+                Node q = p.next; p.next = g2.l;
                 p = q;
             }
             g1.r = g2.r;
@@ -394,11 +395,12 @@ namespace CocoR
         public void MakeIteration(Graph g)
         {
             g.l = NewNode(Node.iter, g.l);
+            g.r.up = true;
             Node p = g.r;
             g.r = g.l;
             while (p != null)
             {
-                Node q = p.next; p.next = g.l; p.up = true;
+                Node q = p.next; p.next = g.l;
                 p = q;
             }
         }
@@ -406,6 +408,7 @@ namespace CocoR
         public void MakeOption(Graph g)
         {
             g.l = NewNode(Node.opt, g.l);
+            g.r.up = true;
             g.l.next = g.r;
             g.r = g.l;
         }
@@ -415,7 +418,8 @@ namespace CocoR
             Node p = g.r;
             while (p != null)
             {
-                Node q = p.next; p.next = null; p = q;
+                Node q = p.next; p.next = null;
+                p = q;
             }
         }
 
@@ -463,36 +467,30 @@ namespace CocoR
 
         //------------ graph deletability check -----------------
 
-        public bool DelGraph(Node p)
+        public static bool DelGraph(Node p)
         {
             return p == null || DelNode(p) && DelGraph(p.next);
         }
 
-        public bool DelSubGraph(Node p)
+        public static bool DelSubGraph(Node p)
         {
             return p == null || DelNode(p) && (p.up || DelSubGraph(p.next));
         }
 
-        public bool DelAlt(Node p)
-        {
-            return p == null || DelNode(p) && (p.up || DelAlt(p.next));
-        }
-
-        public bool DelNode(Node p)
+        public static bool DelNode(Node p)
         {
             if (p.typ == Node.nt) return p.sym.deletable;
-            else if (p.typ == Node.alt) return DelAlt(p.sub) || p.down != null && DelAlt(p.down);
+            else if (p.typ == Node.alt) return DelSubGraph(p.sub) || p.down != null && DelSubGraph(p.down);
             else return p.typ == Node.iter || p.typ == Node.opt || p.typ == Node.sem
                 || p.typ == Node.eps || p.typ == Node.rslv || p.typ == Node.sync;
         }
 
         //----------------- graph printing ----------------------
 
-        int Ptr(Node p, bool up)
+        string Ptr(Node p, bool up)
         {
-            if (p == null) return 0;
-            else if (up) return -p.n;
-            else return p.n;
+            string ptr = (p == null) ? "0" : p.n.ToString();
+            return (up) ? ("-" + ptr) : ptr;
         }
 
         string Pos(Position pos)
@@ -762,7 +760,7 @@ namespace CocoR
                 if (a == null) a = LeadingAny(p.down);
             }
             else if (p.typ == Node.opt || p.typ == Node.iter) a = LeadingAny(p.sub);
-            else if (DelNode(p) && !p.up) a = LeadingAny(p.next);
+            if (a == null && DelNode(p) && !p.up) a = LeadingAny(p.next);
             return a;
         }
 
@@ -792,6 +790,21 @@ namespace CocoR
                         q = q.down;
                     }
                 }
+
+                // Remove alternative terminals before ANY, in the following
+                // examples a and b must be removed from the ANY set:
+                // [a] ANY, or {a|b} ANY, or [a][b] ANY, or (a|) ANY, or
+                // A = [a]. A ANY
+                if (DelNode(p))
+                {
+                    a = LeadingAny(p.next);
+                    if (a != null)
+                    {
+                        Node q = (p.typ == Node.nt) ? p.sym.graph : p.sub;
+                        Sets.Subtract(a.set, First(q));
+                    }
+                }
+
                 if (p.up) break;
                 p = p.next;
             }
@@ -886,8 +899,8 @@ namespace CocoR
         {
             CompDeletableSymbols();
             CompFirstSets();
-            CompFollowSets();
             CompAnySets();
+            CompFollowSets();
             CompSyncSets();
             if (ddt[1])
             {
@@ -1143,7 +1156,7 @@ namespace CocoR
                 else if (p.typ == Node.any)
                 {
                     if (Sets.Elements(p.set) == 0) LL1Error(3, null);
-                    // e.g. {ANY} ANY or [ANY] ANY
+                    // e.g. {ANY} ANY or [ANY] ANY or ( ANY | ANY )
                 }
                 if (p.up) break;
                 p = p.next;
@@ -1273,7 +1286,7 @@ namespace CocoR
                 if (!visited[sym.n])
                 {
                     ok = false;
-                    errors.SemErr("  " + sym.name + " cannot be reached");
+                    errors.Warning("  " + sym.name + " cannot be reached");
                 }
             }
             return ok;
@@ -1323,7 +1336,7 @@ namespace CocoR
 
         public void XRef()
         {
-            SortedList xref = new SortedList();
+            SortedList xref = new SortedList(new SymbolComp());
             // collect lines where symbols have been defined
             foreach (Symbol sym in nonterminals)
             {
@@ -1382,6 +1395,28 @@ namespace CocoR
                         case 'X': ddt[7] = true; break; // list cross reference table
                         default: break;
                     }
+            }
+        }
+
+        public void SetOption(string s)
+        {
+            string[] option = s.Split(new char[] { '=' }, 2);
+            string name = option[0], value = option[1];
+            if ("$namespace".Equals(name))
+            {
+                if (nsName == null) nsName = value;
+            }
+            else if ("$checkEOF".Equals(name))
+            {
+                checkEOF = "true".Equals(value);
+            }
+        }
+
+        class SymbolComp : IComparer
+        {
+            public int Compare(Object x, Object y)
+            {
+                return ((Symbol)x).name.CompareTo(((Symbol)y).name);
             }
         }
     } // end Tab

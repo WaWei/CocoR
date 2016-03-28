@@ -1,8 +1,8 @@
 using System;
-using System.Collections.Generic;
+using System.Collections;
 using System.IO;
 
-namespace CocoR
+namespace Taste
 {
     public class Token
     {
@@ -246,8 +246,8 @@ namespace CocoR
     {
         const char EOL = '\n';
         const int eofSym = 0; /* pdt */
-        const int maxT = 41;
-        const int noSym = 41;
+        const int maxT = 28;
+        const int noSym = 28;
 
         public Buffer buffer; // scanner buffer
 
@@ -258,7 +258,7 @@ namespace CocoR
         int col;          // column number of current character
         int line;         // line number of current character
         int oldEols;      // EOLs that appeared in a comment;
-        static readonly Dictionary<int, int> start; // maps first token character to start state
+        static readonly Hashtable start; // maps first token character to start state
 
         Token tokens;     // list of tokens already peeked (first token is a dummy)
         Token pt;         // current peek token
@@ -268,27 +268,23 @@ namespace CocoR
 
         static Scanner()
         {
-            start = new Dictionary<int, int>(128);
+            start = new Hashtable(128);
             for (int i = 65; i <= 90; ++i) start[i] = 1;
-            for (int i = 95; i <= 95; ++i) start[i] = 1;
             for (int i = 97; i <= 122; ++i) start[i] = 1;
             for (int i = 48; i <= 57; ++i) start[i] = 2;
-            start[34] = 12;
-            start[39] = 5;
-            start[36] = 13;
+            start[43] = 3;
+            start[45] = 4;
+            start[42] = 5;
+            start[47] = 6;
+            start[40] = 7;
+            start[41] = 8;
+            start[123] = 9;
+            start[125] = 10;
             start[61] = 16;
-            start[46] = 31;
-            start[43] = 17;
-            start[45] = 18;
-            start[60] = 32;
-            start[62] = 20;
-            start[124] = 23;
-            start[40] = 33;
-            start[41] = 24;
-            start[91] = 25;
-            start[93] = 26;
-            start[123] = 27;
-            start[125] = 28;
+            start[60] = 12;
+            start[62] = 13;
+            start[59] = 14;
+            start[44] = 15;
             start[Buffer.EOF] = -1;
         }
 
@@ -426,23 +422,17 @@ namespace CocoR
         {
             switch (t.val)
             {
-                case "COMPILER": t.kind = 6; break;
-                case "IGNORECASE": t.kind = 7; break;
-                case "CHARACTERS": t.kind = 8; break;
-                case "TOKENS": t.kind = 9; break;
-                case "PRAGMAS": t.kind = 10; break;
-                case "COMMENTS": t.kind = 11; break;
-                case "FROM": t.kind = 12; break;
-                case "TO": t.kind = 13; break;
-                case "NESTED": t.kind = 14; break;
-                case "IGNORE": t.kind = 15; break;
-                case "PRODUCTIONS": t.kind = 16; break;
-                case "END": t.kind = 19; break;
-                case "ANY": t.kind = 23; break;
-                case "WEAK": t.kind = 29; break;
-                case "SYNC": t.kind = 36; break;
-                case "IF": t.kind = 37; break;
-                case "CONTEXT": t.kind = 38; break;
+                case "true": t.kind = 5; break;
+                case "false": t.kind = 6; break;
+                case "void": t.kind = 9; break;
+                case "if": t.kind = 19; break;
+                case "else": t.kind = 20; break;
+                case "while": t.kind = 21; break;
+                case "read": t.kind = 22; break;
+                case "write": t.kind = 23; break;
+                case "program": t.kind = 24; break;
+                case "int": t.kind = 25; break;
+                case "bool": t.kind = 26; break;
                 default: break;
             }
         }
@@ -458,7 +448,8 @@ namespace CocoR
             t = new Token();
             t.pos = pos; t.col = col; t.line = line; t.charPos = charPos;
             int state;
-            state = start.ContainsKey(ch) ? start[ch] : 0;
+            if (start.ContainsKey(ch)) { state = (int)start[ch]; }
+            else { state = 0; }
             tlen = 0; AddCh();
 
             switch (state)
@@ -475,7 +466,7 @@ namespace CocoR
                     } // NextCh already done
                 case 1:
                     recEnd = pos; recKind = 1;
-                    if (ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'Z' || ch == '_' || ch >= 'a' && ch <= 'z') { AddCh(); goto case 1; }
+                    if (ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z') { AddCh(); goto case 1; }
                     else { t.kind = 1; t.val = new String(tval, 0, tlen); CheckLiteral(); return t; }
                 case 2:
                     recEnd = pos; recKind = 2;
@@ -486,93 +477,31 @@ namespace CocoR
                 case 4:
                     { t.kind = 4; break; }
                 case 5:
-                    if (ch <= 9 || ch >= 11 && ch <= 12 || ch >= 14 && ch <= '&' || ch >= '(' && ch <= '[' || ch >= ']' && ch <= 65535) { AddCh(); goto case 6; }
-                    else if (ch == 92) { AddCh(); goto case 7; }
-                    else { goto case 0; }
+                    { t.kind = 7; break; }
                 case 6:
-                    if (ch == 39) { AddCh(); goto case 9; }
-                    else { goto case 0; }
+                    { t.kind = 8; break; }
                 case 7:
-                    if (ch >= ' ' && ch <= '~') { AddCh(); goto case 8; }
-                    else { goto case 0; }
+                    { t.kind = 10; break; }
                 case 8:
-                    if (ch >= '0' && ch <= '9' || ch >= 'a' && ch <= 'f') { AddCh(); goto case 8; }
-                    else if (ch == 39) { AddCh(); goto case 9; }
-                    else { goto case 0; }
+                    { t.kind = 11; break; }
                 case 9:
-                    { t.kind = 5; break; }
+                    { t.kind = 12; break; }
                 case 10:
-                    recEnd = pos; recKind = 42;
-                    if (ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'Z' || ch == '_' || ch >= 'a' && ch <= 'z') { AddCh(); goto case 10; }
-                    else { t.kind = 42; break; }
+                    { t.kind = 13; break; }
                 case 11:
-                    recEnd = pos; recKind = 43;
-                    if (ch >= '-' && ch <= '.' || ch >= '0' && ch <= ':' || ch >= 'A' && ch <= 'Z' || ch == '_' || ch >= 'a' && ch <= 'z') { AddCh(); goto case 11; }
-                    else { t.kind = 43; break; }
+                    { t.kind = 14; break; }
                 case 12:
-                    if (ch <= 9 || ch >= 11 && ch <= 12 || ch >= 14 && ch <= '!' || ch >= '#' && ch <= '[' || ch >= ']' && ch <= 65535) { AddCh(); goto case 12; }
-                    else if (ch == 10 || ch == 13) { AddCh(); goto case 4; }
-                    else if (ch == '"') { AddCh(); goto case 3; }
-                    else if (ch == 92) { AddCh(); goto case 14; }
-                    else { goto case 0; }
+                    { t.kind = 15; break; }
                 case 13:
-                    recEnd = pos; recKind = 42;
-                    if (ch >= '0' && ch <= '9') { AddCh(); goto case 10; }
-                    else if (ch >= 'A' && ch <= 'Z' || ch == '_' || ch >= 'a' && ch <= 'z') { AddCh(); goto case 15; }
-                    else { t.kind = 42; break; }
+                    { t.kind = 16; break; }
                 case 14:
-                    if (ch >= ' ' && ch <= '~') { AddCh(); goto case 12; }
-                    else { goto case 0; }
+                    { t.kind = 18; break; }
                 case 15:
-                    recEnd = pos; recKind = 42;
-                    if (ch >= '0' && ch <= '9') { AddCh(); goto case 10; }
-                    else if (ch >= 'A' && ch <= 'Z' || ch == '_' || ch >= 'a' && ch <= 'z') { AddCh(); goto case 15; }
-                    else if (ch == '=') { AddCh(); goto case 11; }
-                    else { t.kind = 42; break; }
-                case 16:
-                    { t.kind = 17; break; }
-                case 17:
-                    { t.kind = 20; break; }
-                case 18:
-                    { t.kind = 21; break; }
-                case 19:
-                    { t.kind = 22; break; }
-                case 20:
-                    { t.kind = 25; break; }
-                case 21:
-                    { t.kind = 26; break; }
-                case 22:
                     { t.kind = 27; break; }
-                case 23:
-                    { t.kind = 28; break; }
-                case 24:
-                    { t.kind = 31; break; }
-                case 25:
-                    { t.kind = 32; break; }
-                case 26:
-                    { t.kind = 33; break; }
-                case 27:
-                    { t.kind = 34; break; }
-                case 28:
-                    { t.kind = 35; break; }
-                case 29:
-                    { t.kind = 39; break; }
-                case 30:
-                    { t.kind = 40; break; }
-                case 31:
-                    recEnd = pos; recKind = 18;
-                    if (ch == '.') { AddCh(); goto case 19; }
-                    else if (ch == '>') { AddCh(); goto case 22; }
-                    else if (ch == ')') { AddCh(); goto case 30; }
-                    else { t.kind = 18; break; }
-                case 32:
-                    recEnd = pos; recKind = 24;
-                    if (ch == '.') { AddCh(); goto case 21; }
-                    else { t.kind = 24; break; }
-                case 33:
-                    recEnd = pos; recKind = 30;
-                    if (ch == '.') { AddCh(); goto case 29; }
-                    else { t.kind = 30; break; }
+                case 16:
+                    recEnd = pos; recKind = 17;
+                    if (ch == '=') { AddCh(); goto case 11; }
+                    else { t.kind = 17; break; }
             }
             t.val = new String(tval, 0, tlen);
             return t;

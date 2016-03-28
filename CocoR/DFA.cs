@@ -295,33 +295,157 @@ namespace CocoR
     }
 
     //-----------------------------------------------------------------------------
+    //  Generator
+    //-----------------------------------------------------------------------------
+    class Generator
+    {
+        private const int EOF = -1;
+
+        private FileStream fram;
+        private StreamWriter gen;
+        private readonly Tab tab;
+        private string frameFile;
+
+        public Generator(Tab tab)
+        {
+            this.tab = tab;
+        }
+
+        public FileStream OpenFrame(String frame)
+        {
+            if (tab.frameDir != null) frameFile = Path.Combine(tab.frameDir, frame);
+            if (frameFile == null || !File.Exists(frameFile)) frameFile = Path.Combine(tab.srcDir, frame);
+            if (frameFile == null || !File.Exists(frameFile)) throw new FatalError("Cannot find : " + frame);
+
+            try
+            {
+                fram = new FileStream(frameFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+            }
+            catch (FileNotFoundException)
+            {
+                throw new FatalError("Cannot open frame file: " + frameFile);
+            }
+            return fram;
+        }
+
+        public StreamWriter OpenGen(string target)
+        {
+            string fn = Path.Combine(tab.outDir, target);
+            try
+            {
+                if (File.Exists(fn)) File.Copy(fn, fn + ".old", true);
+                gen = new StreamWriter(new FileStream(fn, FileMode.Create)); /* pdt */
+            }
+            catch (IOException)
+            {
+                throw new FatalError("Cannot generate file: " + fn);
+            }
+            return gen;
+        }
+
+        public void GenCopyright()
+        {
+            string copyFr = null;
+            if (tab.frameDir != null) copyFr = Path.Combine(tab.frameDir, "Copyright.frame");
+            if (copyFr == null || !File.Exists(copyFr)) copyFr = Path.Combine(tab.srcDir, "Copyright.frame");
+            if (copyFr == null || !File.Exists(copyFr)) return;
+
+            try
+            {
+                FileStream scannerFram = fram;
+                fram = new FileStream(copyFr, FileMode.Open, FileAccess.Read, FileShare.Read);
+                CopyFramePart(null);
+                fram = scannerFram;
+            }
+            catch (FileNotFoundException)
+            {
+                throw new FatalError("Cannot open Copyright.frame");
+            }
+        }
+
+        public void SkipFramePart(String stop)
+        {
+            CopyFramePart(stop, false);
+        }
+
+        public void CopyFramePart(String stop)
+        {
+            CopyFramePart(stop, true);
+        }
+
+        // if stop == null, copies until end of file
+        private void CopyFramePart(string stop, bool generateOutput)
+        {
+            char startCh = (char)0;
+            int endOfStopString = 0;
+
+            if (stop != null)
+            {
+                startCh = stop[0];
+                endOfStopString = stop.Length - 1;
+            }
+
+            int ch = framRead();
+            while (ch != EOF)
+            {
+                if (stop != null && ch == startCh)
+                {
+                    int i = 0;
+                    do
+                    {
+                        if (i == endOfStopString) return; // stop[0..i] found
+                        ch = framRead(); i++;
+                    } while (ch == stop[i]);
+                    // stop[0..i-1] found; continue with last read character
+                    if (generateOutput) gen.Write(stop.Substring(0, i));
+                }
+                else {
+                    if (generateOutput) gen.Write((char)ch);
+                    ch = framRead();
+                }
+            }
+
+            if (stop != null) throw new FatalError("Incomplete or corrupt frame file: " + frameFile);
+        }
+
+        private int framRead()
+        {
+            try
+            {
+                return fram.ReadByte();
+            }
+            catch (Exception)
+            {
+                throw new FatalError("Error reading frame file: " + frameFile);
+            }
+        }
+    }
+
+    //-----------------------------------------------------------------------------
     //  DFA
     //-----------------------------------------------------------------------------
 
     public class DFA
     {
-        public const int EOF = -1;
+        private int maxStates;
+        private int lastStateNr;   // highest state number
+        private State firstState;
+        private State lastState;   // last allocated state
+        private int lastSimState;  // last non melted state
+        private FileStream fram;   // scanner frame input
+        private StreamWriter gen;  // generated scanner file
+        private Symbol curSy;      // current token to be recognized (in FindTrans)
+        private bool dirtyDFA;     // DFA may become nondeterministic in MatchLiteral
 
-        public int maxStates;
-        public int lastStateNr;   // highest state number
-        public State firstState;
-        public State lastState;   // last allocated state
-        public int lastSimState;  // last non melted state
-        public FileStream fram;   // scanner frame input
-        public StreamWriter gen;  // generated scanner file
-        public Symbol curSy;      // current token to be recognized (in FindTrans)
-        public Node curGraph;     // start of graph for current token (in FindTrans)
         public bool ignoreCase;   // true if input should be treated case-insensitively
-        public bool dirtyDFA;     // DFA may become nondeterministic in MatchLiteral
         public bool hasCtxMoves;  // DFA has context transitions
 
-        Parser parser;        // other Coco objects
-        Tab tab;
-        Errors errors;
-        TextWriter trace;
+        // other Coco objects
+        private Parser parser;
 
-        string insertionStart = "-->";
-        string frameEnd = "$$$";
+        private Tab tab;
+        private Errors errors;
+        private TextWriter trace;
 
         //---------- Output primitives
         private string Ch(int ch)
@@ -358,7 +482,6 @@ namespace CocoR
 
         void NewTransition(State from, State to, int typ, int sym, int tc)
         {
-            if (to == firstState) parser.SemErr("token must not start with an iteration");
             Target t = new Target(to);
             Action a = new Action(typ, sym, tc); a.target = t;
             from.AddAction(a);
@@ -446,6 +569,20 @@ namespace CocoR
                         break;
                     }
                 case Node.iter:
+                    {
+                        if (Tab.DelSubGraph(p.sub))
+                        {
+                            parser.SemErr("contents of {...} must not be deletable");
+                            return;
+                        }
+                        if (p.next != null && !stepped[p.next.n]) Step(from, p.next, stepped);
+                        Step(from, p.sub, stepped);
+                        if (p.state != from)
+                        {
+                            Step(p.state, p, new BitArray(tab.nodes.Count));
+                        }
+                        break;
+                    }
                 case Node.opt:
                     {
                         if (p.next != null && !stepped[p.next.n]) Step(from, p.next, stepped);
@@ -455,38 +592,45 @@ namespace CocoR
             }
         }
 
-        void NumberNodes(Node p, State state)
+        // Assigns a state n.state to every node n. There will be a transition from
+        // n.state to n.next.state triggered by n.val. All nodes in an alternative
+        // chain are represented by the same state.
+        // Numbering scheme:
+        //  - any node after a chr, clas, opt, or alt, must get a new number
+        //  - if a nested structure starts with an iteration the iter node must get a new number
+        //  - if an iteration follows an iteration, it must get a new number
+        void NumberNodes(Node p, State state, bool renumIter)
         {
-            /* Assigns a state n.state to every node n. There will be a transition from
-               n.state to n.next.state triggered by n.val. All nodes in an alternative
-               chain are represented by the same state.
-            */
             if (p == null) return;
             if (p.state != null) return; // already visited;
-            if (state == null) state = NewState();
+            if (state == null || (p.typ == Node.iter && renumIter)) state = NewState();
             p.state = state;
-            if (tab.DelGraph(p)) state.endOf = curSy;
+            if (Tab.DelGraph(p)) state.endOf = curSy;
             switch (p.typ)
             {
                 case Node.clas:
                 case Node.chr:
                     {
-                        NumberNodes(p.next, null);
+                        NumberNodes(p.next, null, false);
                         break;
                     }
                 case Node.opt:
                     {
-                        NumberNodes(p.next, null); NumberNodes(p.sub, state);
+                        NumberNodes(p.next, null, false);
+                        NumberNodes(p.sub, state, true);
                         break;
                     }
                 case Node.iter:
                     {
-                        NumberNodes(p.next, state); NumberNodes(p.sub, state);
+                        NumberNodes(p.next, state, true);
+                        NumberNodes(p.sub, state, true);
                         break;
                     }
                 case Node.alt:
                     {
-                        NumberNodes(p.sub, state); NumberNodes(p.down, state);
+                        NumberNodes(p.next, null, false);
+                        NumberNodes(p.sub, state, true);
+                        NumberNodes(p.down, state, renumIter);
                         break;
                     }
             }
@@ -525,10 +669,18 @@ namespace CocoR
 
         public void ConvertToStates(Node p, Symbol sym)
         {
-            curGraph = p; curSy = sym;
-            if (tab.DelGraph(curGraph)) parser.SemErr("token might be empty");
-            NumberNodes(curGraph, firstState);
-            FindTrans(curGraph, true, new BitArray(tab.nodes.Count));
+            curSy = sym;
+            if (Tab.DelGraph(p))
+            {
+                parser.SemErr("token might be empty");
+                return;
+            }
+            NumberNodes(p, firstState, true);
+            FindTrans(p, true, new BitArray(tab.nodes.Count));
+            if (p.typ == Node.iter)
+            {
+                Step(firstState, p, new BitArray(tab.nodes.Count));
+            }
         }
 
         // match string against current automaton; store it either as a fixedToken or as a litToken
@@ -551,7 +703,7 @@ namespace CocoR
                 dirtyDFA = true;
             }
             for (; i < len; i++)
-            { // make new DFA for s[i..len-1]
+            { // make new DFA for s[i..len-1], ML: i is either 0 or len
                 State to = NewState();
                 NewTransition(state, to, Node.chr, s[i], Node.normalTrans);
                 state = to;
@@ -620,18 +772,21 @@ namespace CocoR
             }
         }
 
-        bool MakeUnique(State state)
-        { // return true if actions were split
-            bool changed = false;
-            for (Action a = state.firstAction; a != null; a = a.next)
-                for (Action b = a.next; b != null; b = b.next)
-                    if (Overlap(a, b)) { SplitActions(state, a, b); changed = true; }
-            return changed;
+        void MakeUnique(State state)
+        {
+            bool changed;
+            do
+            {
+                changed = false;
+                for (Action a = state.firstAction; a != null; a = a.next)
+                    for (Action b = a.next; b != null; b = b.next)
+                        if (Overlap(a, b)) { SplitActions(state, a, b); changed = true; }
+            } while (changed);
         }
 
         void MeltStates(State state)
         {
-            bool changed, ctx;
+            bool ctx;
             BitArray targets;
             Symbol endOf;
             for (Action action = state.firstAction; action != null; action = action.next)
@@ -645,7 +800,7 @@ namespace CocoR
                         State s = NewState(); s.endOf = endOf; s.ctx = ctx;
                         for (Target targ = action.target; targ != null; targ = targ.next)
                             s.MeltWith(targ.state);
-                        do { changed = MakeUnique(s); } while (changed);
+                        MakeUnique(s);
                         melt = NewMelted(targets, s);
                     }
                     action.target.next = null;
@@ -664,12 +819,11 @@ namespace CocoR
         public void MakeDeterministic()
         {
             State state;
-            bool changed;
             lastSimState = lastState.nr;
             maxStates = 2 * lastSimState; // heuristic for set size in Melted.set
             FindCtxStates();
             for (state = firstState; state != null; state = state.next)
-                do { changed = MakeUnique(state); } while (changed);
+                MakeUnique(state);
             for (state = firstState; state != null; state = state.next)
                 MeltStates(state);
             DeleteRedundantStates();
@@ -852,7 +1006,7 @@ namespace CocoR
         {
             gen.WriteLine();
             gen.Write("\tbool Comment{0}() ", i); gen.WriteLine("{");
-            gen.WriteLine("\t\tint level = 1, pos0 = pos, line0 = line, col0 = col;");
+            gen.WriteLine("\t\tint level = 1, pos0 = pos, line0 = line, col0 = col, charPos0 = charPos;");
             if (com.start.Length == 1)
             {
                 gen.WriteLine("\t\tNextCh();");
@@ -864,34 +1018,11 @@ namespace CocoR
                 gen.WriteLine("\t\t\tNextCh();");
                 GenComBody(com);
                 gen.WriteLine("\t\t} else {");
-                gen.WriteLine("\t\t\tbuffer.Pos = pos0; NextCh(); line = line0; col = col0;");
+                gen.WriteLine("\t\t\tbuffer.Pos = pos0; NextCh(); line = line0; col = col0; charPos = charPos0;");
                 gen.WriteLine("\t\t}");
                 gen.WriteLine("\t\treturn false;");
             }
             gen.WriteLine("\t}");
-        }
-
-        void CopyFramePart(string stop)
-        {
-            char startCh = stop[0];
-            int endOfStopString = stop.Length - 1;
-            int ch = fram.ReadByte();
-            while (ch != EOF)
-                if (ch == startCh)
-                {
-                    int i = 0;
-                    do
-                    {
-                        if (i == endOfStopString) return; // stop[0..i] found
-                        ch = fram.ReadByte(); i++;
-                    } while (ch == stop[i]);
-                    // stop[0..i-1] found; continue with last read character
-                    gen.Write(stop.Substring(0, i));
-                }
-                else {
-                    gen.Write((char)ch); ch = fram.ReadByte();
-                }
-            throw new FatalError("incomplete or corrupt scanner frame file");
         }
 
         string SymName(Symbol sym)
@@ -904,13 +1035,6 @@ namespace CocoR
             return sym.name;
         }
 
-        //Adicionado o copy frame part sem atributos para inserir o símbolo terminal
-
-        /* ml
-       returns the stop word - must start with insertionStart (-->)
-       or frameEnd ($$$) - or null if none found
-    */
-
         void GenLiterals()
         {
             if (ignoreCase)
@@ -920,14 +1044,17 @@ namespace CocoR
             else {
                 gen.WriteLine("\t\tswitch (t.val) {");
             }
-            foreach (Symbol sym in tab.terminals)
+            foreach (IList ts in new IList[] { tab.terminals, tab.pragmas })
             {
-                if (sym.tokenKind == Symbol.litToken)
+                foreach (Symbol sym in ts)
                 {
-                    string name = SymName(sym);
-                    if (ignoreCase) name = name.ToLower();
-                    // sym.name stores literals with quotes, e.g. "\"Literal\""
-                    gen.WriteLine("\t\t\tcase {0}: t.kind = {1}; break;", name, sym.n);
+                    if (sym.tokenKind == Symbol.litToken)
+                    {
+                        string name = SymName(sym);
+                        if (ignoreCase) name = name.ToLower();
+                        // sym.name stores literals with quotes, e.g. "\"Literal\""
+                        gen.WriteLine("\t\t\tcase {0}: t.kind = {1}; break;", name, sym.n);
+                    }
                 }
             }
             gen.WriteLine("\t\t\tdefault: break;");
@@ -938,6 +1065,10 @@ namespace CocoR
         {
             Symbol endOf = state.endOf;
             gen.WriteLine("\t\t\tcase {0}:", state.nr);
+            if (endOf != null && state.firstAction != null)
+            {
+                gen.WriteLine("\t\t\t\trecEnd = pos; recKind = {0};", endOf.n);
+            }
             bool ctxEnd = state.ctx;
             for (Action action = state.firstAction; action != null; action = action.next)
             {
@@ -963,13 +1094,12 @@ namespace CocoR
             { // final context state: cut appendix
                 gen.WriteLine();
                 gen.WriteLine("\t\t\t\t\ttlen -= apx;");
-                gen.WriteLine("\t\t\t\t\tbuffer.Pos = t.pos; NextCh(); line = t.line; col = t.col;");
-                gen.WriteLine("\t\t\t\t\tfor (int i = 0; i < tlen; i++) NextCh();");
+                gen.WriteLine("\t\t\t\t\tSetScannerBehindT();");
                 gen.Write("\t\t\t\t\t");
             }
             if (endOf == null)
             {
-                gen.WriteLine("t.kind = noSym; break;}");
+                gen.WriteLine("goto case 0;}");
             }
             else {
                 gen.Write("t.kind = {0}; ", endOf.n);
@@ -1003,163 +1133,74 @@ namespace CocoR
             gen.WriteLine("\t\tstart[Buffer.EOF] = -1;");
         }
 
-        /* ml
-              returns the stop word - must start with insertionStart (-->)
-              or frameEnd ($$$) - or null if none found
-           */
-
-        string CopyFramePart()
-        {
-            char startIn = insertionStart[0];
-            int endOfInString = insertionStart.Length - 1;
-            char startFr = frameEnd[0];
-            int endOfFrString = frameEnd.Length - 1;
-            StringBuilder insertion;
-            int i;
-
-            int ch = fram.ReadByte();
-            while (ch != EOF)
-            {
-                if (ch == startIn)
-                {
-                    i = 0;
-                    do
-                    {
-                        if (i == endOfInString)
-                        { // insertion point found
-                            insertion = new StringBuilder(insertionStart);
-                            ch = fram.ReadByte();
-                            while (!Char.IsWhiteSpace((char)ch))
-                            {
-                                insertion.Append((char)ch);
-                                ch = fram.ReadByte();
-                            }
-                            return insertion.ToString();
-                        }
-                        ch = fram.ReadByte(); i++;
-                    } while (ch == insertionStart[i]);
-                    // insertionStart[0..i-1] found; continue with last read character
-                    gen.Write(insertionStart.Substring(0, i));
-                }
-                else if (ch == startFr)
-                {
-                    i = 0;
-                    do
-                    {
-                        if (i == endOfFrString)
-                        { // end of frame found
-                            return frameEnd;
-                        }
-                        ch = fram.ReadByte(); i++;
-                    } while (ch == frameEnd[i]);
-                    // frameEnd[0..i-1] found; continue with last read character
-                    gen.Write(frameEnd.Substring(0, i));
-                }
-                else
-                {
-                    gen.Write((char)ch); ch = fram.ReadByte();
-                }
-            }
-            return null;
-        }
-
-        void OpenGen(bool backUp)
-        { /* pdt */
-            try
-            {
-                string fn = Path.Combine(tab.outDir, "Scanner.fs"); /* pdt */
-                if (File.Exists(fn) && backUp) File.Copy(fn, fn + ".old", true);
-                gen = new StreamWriter(new FileStream(fn, FileMode.Create)); /* pdt */
-            }
-            catch (IOException)
-            {
-                throw new FatalError("Cannot generate scanner file");
-            }
-        }
-
         public void WriteScanner()
         {
-            string insertion; /* ml */
-                              //ml string fr = tab.srcDir + "Scanner.frame";  /* pdt */
-            string frameDir;
-            string[] scannerFrames;
-
-            if (tab.frameDir != null && Directory.Exists(tab.frameDir))
-            {
-                frameDir = tab.frameDir;
-            }
-            else if (tab.srcDir != null && Directory.Exists(tab.srcDir))
-            {
-                frameDir = tab.srcDir;
-            }
-            else {
-                frameDir = Environment.CurrentDirectory;
-            }
-
-            scannerFrames = Directory.GetFiles(frameDir, "*Scanner.frame");
-
-            if (scannerFrames.Length == 0) System.Console.WriteLine("-- Warning: No Scanner.frame found.");
-
+            Generator g = new Generator(tab);
+            fram = g.OpenFrame("Scanner.frame");
+            gen = g.OpenGen("Scanner.cs");
             if (dirtyDFA) MakeDeterministic();
 
-            // Loop over scanner.frame files
-            for (int i = 0; i < scannerFrames.Length; ++i)
+            g.GenCopyright();
+            g.SkipFramePart("-->begin");
+
+            g.CopyFramePart("-->namespace");
+            if (tab.nsName != null && tab.nsName.Length > 0)
             {
-                string fr;
-                fr = scannerFrames[i];
-                //ml if (!File.Exists(fr)) {
-                //ml	if (tab.frameDir != null)
-                //ml		fr = tab.frameDir.Trim() + Path.DirectorySeparatorChar + "Scanner.frame";
-                //ml	if (!File.Exists(fr)) errors.Exception("-- Cannot find Scanner.frame");
-                //ml }
-                try
-                {
-                    fram = new FileStream(fr, FileMode.Open, FileAccess.Read, FileShare.Read);
-                }
-                catch (FileNotFoundException)
-                {
-                    throw new FatalError("-- Cannot open " + fr);
-                    //errors.Exception("-- Cannot open " + fr);
-                }
-
-                string relFr = Path.GetFileName(fr).ToLower();
-                if (relFr.Equals("scanner.frame"))
-                {
-                    fr = fr.Substring(0, fr.Length - "frame".Length) + "cs";
-                }
-                else if (relFr.Length > ".parser.frame".Length && relFr.EndsWith(".scanner.frame"))
-                {
-                    fr = fr.Substring(0, fr.Length - ".scanner.frame".Length);
-                }
-                else {
-                    // Some invalid parser.frame found (i.e.: MyParser.frame, .Parser.frame),
-                    // ignore it.
-                    continue;
-                }
-
-                OpenGen(true); /* pdt */
-                CopyFramePart(insertionStart + "begin");
-                if (!tab.srcName.ToLower().EndsWith("coco.atg"))
-                {
-                    gen.Close(); OpenGen(false); /* pdt */
-                }
-                ScannerOutput output = new ScannerOutput(gen, tab, ignoreCase, hasCtxMoves, firstState, firstComment);
-
-                insertion = CopyFramePart();
-                while (insertion != null && !insertion.Equals(frameEnd))
-                {
-                    output.dispatch(insertion);
-                    insertion = CopyFramePart();
-                };
-                if (insertion == null)
-                {
-                    throw new FatalError(" -- incomplete or corrupt scanner frame file");
-                }
-                else {
-                    output.dispatch(insertion);
-                }
-                gen.Close();
+                gen.Write("namespace ");
+                gen.Write(tab.nsName);
+                gen.Write(" {");
             }
+            g.CopyFramePart("-->declarations");
+            gen.WriteLine("\tconst int maxT = {0};", tab.terminals.Count - 1);
+            gen.WriteLine("\tconst int noSym = {0};", tab.noSym.n);
+            if (ignoreCase)
+                gen.Write("\tchar valCh;       // current input character (for token.val)");
+            g.CopyFramePart("-->initialization");
+            WriteStartTab();
+            g.CopyFramePart("-->casing1");
+            if (ignoreCase)
+            {
+                gen.WriteLine("\t\tif (ch != Buffer.EOF) {");
+                gen.WriteLine("\t\t\tvalCh = (char) ch;");
+                gen.WriteLine("\t\t\tch = char.ToLower((char) ch);");
+                gen.WriteLine("\t\t}");
+            }
+            g.CopyFramePart("-->casing2");
+            gen.Write("\t\t\ttval[tlen++] = ");
+            if (ignoreCase) gen.Write("valCh;"); else gen.Write("(char) ch;");
+            g.CopyFramePart("-->comments");
+            Comment com = firstComment;
+            int comIdx = 0;
+            while (com != null)
+            {
+                GenComment(com, comIdx);
+                com = com.next; comIdx++;
+            }
+            g.CopyFramePart("-->literals"); GenLiterals();
+            g.CopyFramePart("-->scan1");
+            gen.Write("\t\t\t");
+            if (tab.ignored.Elements() > 0) { PutRange(tab.ignored); } else { gen.Write("false"); }
+            g.CopyFramePart("-->scan2");
+            if (firstComment != null)
+            {
+                gen.Write("\t\tif (");
+                com = firstComment; comIdx = 0;
+                while (com != null)
+                {
+                    gen.Write(ChCond(com.start[0]));
+                    gen.Write(" && Comment{0}()", comIdx);
+                    if (com.next != null) gen.Write(" ||");
+                    com = com.next; comIdx++;
+                }
+                gen.Write(") return NextToken();");
+            }
+            if (hasCtxMoves) { gen.WriteLine(); gen.Write("\t\tint apx = 0;"); } /* pdt */
+            g.CopyFramePart("-->scan3");
+            for (State state = firstState.next; state != null; state = state.next)
+                WriteState(state);
+            g.CopyFramePart(null);
+            if (tab.nsName != null && tab.nsName.Length > 0) gen.Write("}");
+            gen.Close();
         }
 
         public DFA(Parser parser)
